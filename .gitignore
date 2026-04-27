@@ -1,0 +1,12 @@
+build/
+.gradle/
+bin/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.DS_Store
+.claude/
+networktables.json
+simgui.json
+simgui-ds.json
+simgui-window.json
