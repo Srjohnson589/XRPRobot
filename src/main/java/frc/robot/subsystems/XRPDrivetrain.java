@@ -4,8 +4,11 @@
 
 package frc.robot.subsystems;
 
+import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.wpilibj.Encoder;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.xrp.XRPGyro;
 import edu.wpi.first.wpilibj.xrp.XRPMotor;
 import edu.wpi.first.wpilibj.xrp.XRPRangefinder;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -30,9 +33,16 @@ public class XRPDrivetrain extends SubsystemBase {
       new Encoder(DriveConstants.kRightEncoderA, DriveConstants.kRightEncoderB);
 
   private final XRPRangefinder m_rangefinder = new XRPRangefinder();
+  private final XRPGyro m_gyro = new XRPGyro();
 
   private final DifferentialDrive m_diffDrive =
       new DifferentialDrive(m_leftMotor::set, m_rightMotor::set);
+
+  // Heading feedback: PID drives actual yaw to a desired heading that drifts
+  // at kArcCurvature degrees/cycle × forward speed, producing a constant-radius arc.
+  private final PIDController m_headingController = new PIDController(
+      DriveConstants.kHeadingP, DriveConstants.kHeadingI, DriveConstants.kHeadingD);
+  private double m_desiredHeading = 0.0;
 
   public XRPDrivetrain() {
     m_leftEncoder.setDistancePerPulse((Math.PI * kWheelDiameterInch) / kCountsPerRevolution);
@@ -41,11 +51,44 @@ public class XRPDrivetrain extends SubsystemBase {
     m_rightMotor.setInverted(true);
   }
 
-  public void arcadeDrive(double xaxisSpeed, double zaxisRotate) {
-    if (xaxisSpeed > 0 && m_rangefinder.getDistanceInches() <= kObstacleDistanceInch) {
+  public void arcadeDrive(double xaxisSpeed, double zaxisRotate, double curvature) {
+    double rangeInches = m_rangefinder.getDistanceInches();
+    if (xaxisSpeed > 0 && rangeInches > 0 && rangeInches <= kObstacleDistanceInch) {
       xaxisSpeed = 0;
     }
-    m_diffDrive.arcadeDrive(xaxisSpeed, zaxisRotate);
+
+    if (Math.abs(zaxisRotate) < DriveConstants.kRotationDeadband) {
+      // Arc mode: advance desired heading by curvature × speed each 20 ms cycle,
+      // then let the PID close the error between actual and desired yaw.
+      double actual = m_gyro.getAngle();
+      m_desiredHeading += xaxisSpeed * curvature;
+      // Prevent desired heading from running too far ahead — caps PID error and
+      // stops rotation from overwhelming forward motion when the robot can't keep up.
+      m_desiredHeading = MathUtil.clamp(
+          m_desiredHeading,
+          actual - DriveConstants.kMaxHeadingLead,
+          actual + DriveConstants.kMaxHeadingLead);
+      double rotation = MathUtil.clamp(
+          m_headingController.calculate(actual, m_desiredHeading),
+          -DriveConstants.kMaxRotationOutput,
+          DriveConstants.kMaxRotationOutput);
+      m_diffDrive.arcadeDrive(xaxisSpeed, rotation);
+    } else {
+      // Manual turn: re-sync desired heading so arc resumes smoothly when released.
+      m_desiredHeading = m_gyro.getAngle();
+      m_headingController.reset();
+      m_diffDrive.arcadeDrive(xaxisSpeed, zaxisRotate);
+    }
+  }
+
+  public void resetHeading() {
+    m_gyro.reset();
+    m_desiredHeading = 0.0;
+    m_headingController.reset();
+  }
+
+  public double getHeading() {
+    return m_gyro.getAngle();
   }
 
   public void resetEncoders() {

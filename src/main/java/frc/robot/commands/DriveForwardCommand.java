@@ -25,12 +25,12 @@ public class DriveForwardCommand extends Command {
 
   @Override
   public void execute() {
-    m_drivetrain.arcadeDrive(0.5, 0);
+    m_drivetrain.arcadeDrive(0.5, 0, 0);
   }
 
   @Override
   public void end(boolean interrupted) {
-    m_drivetrain.arcadeDrive(0, 0);
+    m_drivetrain.arcadeDrive(0, 0, 0);
   }
 
   @Override
